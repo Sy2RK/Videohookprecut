@@ -10,7 +10,7 @@ from typing import Optional
 
 from .config import Config
 from .structurer import TimeSegment
-from .utils import get_ffmpeg_path
+from .utils import format_timestamp, get_ffmpeg_path
 
 logger = logging.getLogger("videoprecut.editor")
 
