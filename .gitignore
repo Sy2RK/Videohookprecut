@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+.venv/
+
+# 环境变量（包含API密钥）
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+temp/
+*.tmp
+
+# 日志
+logs/*.log
+
+# 模型权重（文件较大）
+models/weights/*.pt
+models/weights/*.onnx
+models/trademark_train/
+
+# 输入视频（不提交原始素材）
+input/
+
+# 输出文件（批次目录）
+output/batch_*/
+output/hooks/*.mp4
+output/gameplay/*.mp4
+output/metadata/*.json

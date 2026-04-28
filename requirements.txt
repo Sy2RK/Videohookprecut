@@ -1,0 +1,17 @@
+# Videoprecut - 竞品广告素材分析工作流 V2
+# 依赖清单
+
+# 核心依赖
+ultralytics>=8.0.0      # YOLOv8 商标检测
+opencv-python>=4.8.0     # 视频帧读取
+ffmpeg-python>=0.2.0    # FFmpeg Python 绑定
+imageio-ffmpeg>=0.4.0   # FFmpeg 静态二进制（系统未安装FFmpeg时回退）
+Pillow>=10.0.0          # 图像处理
+tqdm>=4.65.0            # 进度条
+pyyaml>=6.0             # YAML 配置
+psutil>=5.9.0           # 系统资源监控
+python-dotenv>=1.0.0    # .env 环境变量加载
+
+# 多模态AI依赖
+openai>=1.0.0           # OpenAI API（ai-provider=openai/dashscope时都需要，DashScope使用OpenAI兼容接口）
+# anthropic>=0.20.0     # Claude Vision API（ai-provider=anthropic时需要，取消注释安装）
