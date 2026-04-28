@@ -4,14 +4,13 @@
 
 ## 功能特性
 
-- 📁 **自动扫描**：读取 input/ 目录中的视频文件
+- 📁 **自动扫描**：递归读取 input/ 目录中的视频文件（支持产品子目录）
 - 🔄 **格式转换**：非 mp4 格式自动转换为 mp4
 - 🧠 **AI结构分析**：多模态AI模型检测 Hook/Gameplay/商标三段式结构
-- 🎯 **YOLO商标检测**：精确定位商标帧，微调AI分析结果
 - ✂️ **智能分段**：Hook + Gameplay 独立导出，商标片段丢弃
-- 📝 **Hook描述**：AI分析Hook视觉元素，生成一句话描述
+- 📝 **Hook描述**：AI分析Hook视觉元素，生成描述/情感/过渡方式
 - 📊 **JSON元数据**：结构化存储每个视频的分析结果
-- ⚡ **并行处理**：多进程并行加速批量视频处理
+- 🔗 **飞书导入**：从飞书多维表格批量导入视频URL
 
 ## 视频结构模型
 
@@ -27,7 +26,7 @@
   保存hook视频      保存gameplay视频          丢弃
 ```
 
-**无Hook的素材直接丢弃。**
+**无Hook或无商标的素材直接丢弃。**
 
 ## 快速开始
 
@@ -42,7 +41,7 @@ brew install ffmpeg          # macOS
 pip install -r requirements.txt
 
 # 多模态AI依赖（按需安装）
-pip install openai           # 使用 GPT-4o
+pip install openai           # 使用 GPT-4o / DashScope
 # pip install anthropic      # 使用 Claude Vision
 ```
 
@@ -50,65 +49,79 @@ pip install openai           # 使用 GPT-4o
 
 ```bash
 # 方式1: 命令行参数
-python -m src.main --ai-provider openai --ai-api-key sk-xxx
+python -m src.main --ai-provider dashscope --ai-api-key sk-xxx
 
-# 方式2: 环境变量
-export OPENAI_API_KEY=sk-xxx
-python -m src.main --ai-provider openai
+# 方式2: 环境变量（.env 文件）
+DASHSCOPE_API_KEY=sk-xxx
 ```
 
 ### 3. 处理视频
 
 ```bash
-# 将待处理视频放入 input/ 目录
+# 将待处理视频放入 input/ 目录（支持产品子目录）
+# input/
+# ├── Arrow Maze/
+# │   ├── video1.mp4
+# │   └── video2.mp4
+# └── Arrow Out/
+#     └── video3.mp4
 
-# 基本使用（OpenAI GPT-4o）
+# 基本使用（DashScope，默认）
 python -m src.main --ai-api-key sk-xxx
+
+# 使用 OpenAI GPT-4o
+python -m src.main --ai-provider openai --ai-api-key sk-xxx
 
 # 使用 Anthropic Claude
 python -m src.main --ai-provider anthropic --ai-model claude-sonnet-4-20250514 --ai-api-key sk-xxx
 
-# 使用本地模型（需自行部署 OpenAI 兼容接口）
-python -m src.main --ai-provider local --ai-base-url http://localhost:8000/v1
-
-# 并行处理
-python -m src.main --parallel --workers 4 --ai-api-key sk-xxx
+# 限制处理数量
+python -m src.main --limit 5 --ai-api-key sk-xxx
 
 # 不丢弃无Hook素材
 python -m src.main --no-discard-no-hook --ai-api-key sk-xxx
+```
+
+### 4. 从飞书导入视频
+
+```bash
+# 从飞书多维表格导入视频URL到 input/ 目录
+python -m src.bitable_import --app-token xxx --table-id xxx
 ```
 
 ## 输出结构
 
 ```
 output/
-├── hooks/                    # Hook 视频输出
-│   ├── abc123_hook.mp4
-│   └── ...
-├── gameplay/                 # Gameplay 视频输出
-│   ├── abc123_gameplay.mp4
-│   └── ...
-└── metadata/                 # JSON 元数据
-    ├── abc123.json
-    └── ...
+└── batch_20260428_180000/       # 按批次组织
+    ├── 58acfd1090e646678b92c7e41fcaface/
+    │   ├── hook.mp4             # Hook 视频片段
+    │   ├── gameplay.mp4         # Gameplay 视频片段
+    │   └── analysis.json        # 结构化分析结果
+    └── abc123def456/
+        ├── hook.mp4
+        ├── gameplay.mp4
+        └── analysis.json
 ```
 
 ### JSON 元数据格式
 
 ```json
 {
-  "filename": "abc123.mp4",
+  "filename": "58acfd1090e646678b92c7e41fcaface.mp4",
+  "product": "Arrow Maze - Escape Puzzle",
   "has_hook": true,
-  "hook_description": "一只卡通猫咪在彩色障碍赛道上奔跑的炫酷画面",
+  "hook_description": "一位戴帽子的老年男性角色坐在彩色箭头迷宫前，通过对话气泡强调游戏免费且无广告",
+  "hook_emotion": "安心、轻松",
+  "hook_transition": "人物形象与文字气泡直接消失，画面聚焦于背景迷宫并出现鼠标指针开始演示玩法",
   "segments": {
     "hook": { "start": 0.0, "end": 3.5, "duration": 3.5 },
-    "gameplay": { "start": 3.5, "end": 28.7, "duration": 25.2 },
-    "trademark": { "start": 28.7, "end": 30.8, "duration": 2.1 }
+    "gameplay": { "start": 3.5, "end": 36.0, "duration": 32.5 },
+    "trademark": { "start": 36.0, "end": 40.0, "duration": 4.0 }
   },
-  "video_info": { "width": 1080, "height": 1920, "fps": 30.0, "total_duration": 30.8 },
-  "ai_confidence": 0.85,
-  "yolo_refined": true,
-  "processing_time": 12.5
+  "video_info": { "width": 426, "height": 640, "fps": 30.0, "total_duration": 40.0 },
+  "ai_confidence": 0.95,
+  "processing_time": 37.3
 }
 ```
 
@@ -118,46 +131,41 @@ output/
 |------|--------|------|
 | `--input` | `input` | 输入视频目录 |
 | `--output` | `output` | 输出根目录 |
-| `--model` | `models/weights/best.pt` | YOLO模型权重路径 |
-| `--ai-provider` | `openai` | AI提供商 (openai/anthropic/local) |
+| `--limit` | | 限制处理视频数量 |
+| `--ai-provider` | `dashscope` | AI提供商 (openai/anthropic/dashscope/local) |
 | `--ai-api-key` | | AI API密钥 |
-| `--ai-model` | `gpt-4o` | AI模型名称 |
+| `--ai-model` | `qwen-plus-latest` | AI模型名称 |
 | `--ai-base-url` | | 自定义AI API地址 |
 | `--ai-temperature` | `0.3` | AI生成温度 |
-| `--conf` | `0.5` | YOLO检测置信度阈值 |
 | `--sample-count` | `8` | 视频结构分析采样帧数 |
 | `--crf` | `18` | 视频质量CRF值 |
+| `--preset` | `medium` | 编码预设 |
+| `--buffer` | `0.3` | 剪切缓冲时长(秒) |
 | `--hook-max-duration` | `10.0` | Hook最大时长(秒) |
 | `--no-discard-no-hook` | | 不丢弃无Hook的素材 |
+| `--no-discard-no-trademark` | | 不丢弃无商标的素材 |
 | `--no-hook-description` | | 禁用Hook元素描述 |
-| `--parallel` | `True` | 启用并行处理 |
+| `--no-parallel` | | 禁用并行处理 |
 | `--workers` | `4` | 最大工作进程数 |
-| `--gpus` | `0` | 可用GPU列表 |
 
 ## 项目结构
 
 ```
 Videoprecut/
-├── input/                        # 输入视频目录
-├── output/
-│   ├── hooks/                    # Hook 视频输出
-│   ├── gameplay/                 # Gameplay 视频输出
-│   └── metadata/                 # JSON 元数据
+├── input/                        # 输入视频目录（支持产品子目录）
+├── output/                       # 输出目录（按批次组织）
 ├── src/
-│   ├── main.py                   # 主入口（V2工作流）
-│   ├── config.py                 # 全局配置（含AI配置）
+│   ├── main.py                   # 主入口（V2工作流编排）
+│   ├── config.py                 # 全局配置
 │   ├── analyzer.py               # 多模态AI分析器
 │   ├── structurer.py             # 视频结构分析（Hook/Gameplay/商标分段）
-│   ├── detector.py               # YOLO 商标检测
-│   ├── segmenter.py              # 片段分析
 │   ├── editor.py                 # 视频剪辑（分段导出）
 │   ├── ingestion.py              # 视频读取与格式检查
 │   ├── converter.py              # 视频格式转换
 │   ├── parallel.py               # 多进程并行处理
-│   ├── trainer.py                # YOLO模型训练脚本
+│   ├── bitable_import.py         # 飞书多维表格视频导入
 │   └── utils.py                  # 工具函数（帧采样等）
-├── models/                       # YOLO模型和数据集
-├── trademarks/                   # 商标样本图片
+├── bitable_video_import/         # 飞书多维表格插件
 ├── logs/                         # 处理日志
 └── plans/                        # 设计文档
 ```
@@ -165,19 +173,10 @@ Videoprecut/
 ## 处理流程
 
 ```
-输入视频 → 格式检查/转换 → AI采样关键帧 → 多模态AI分析结构 →
-判断是否有Hook(无则丢弃) → YOLO精确定位商标(可选) →
-剪切Hook视频 → 剪切Gameplay视频 → AI分析Hook元素 →
-生成JSON元数据 → 输出到output/
-```
-
-## YOLO模型训练（可选）
-
-YOLO用于精确定位商标帧，微调AI分析结果。不训练模型也能运行（仅使用AI分析）。
-
-```bash
-# 训练模型
-python -m src.trainer --data models/dataset/dataset.yaml --epochs 100
+输入视频 → 格式检查/转换 → 多模态AI分析结构(视频直传) →
+判断是否有Hook(无则丢弃) → 判断是否有商标(无则丢弃) →
+剪切Hook视频 → 剪切Gameplay视频 → AI分析Hook元素(描述/情感/过渡) →
+生成JSON元数据 → 输出到output/batch_XXX/
 ```
 
 ## 许可证
