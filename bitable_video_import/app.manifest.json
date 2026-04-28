@@ -1,0 +1,49 @@
+{
+  "bot": {
+    "enable": false
+  },
+  "scopes": {
+    "user": [
+      "bitable:app",
+      "bitable:app:readonly",
+      "docs:doc",
+      "docs:doc:readonly",
+      "docs:document.media:download",
+      "drive:drive",
+      "drive:drive:readonly",
+      "sheets:spreadsheet",
+      "sheets:spreadsheet:readonly",
+      "base:table:read",
+      "wiki:node:read",
+      "wiki:wiki",
+      "wiki:wiki:readonly",
+      "base:field:read",
+      "base:record:retrieve",
+      "contact:user.employee_id:readonly"
+    ],
+    "tenant": [
+      "bitable:app",
+      "bitable:app:readonly",
+      "docs:doc",
+      "docs:doc:readonly",
+      "docs:document.media:download",
+      "drive:drive",
+      "drive:drive:readonly",
+      "sheets:spreadsheet",
+      "sheets:spreadsheet:readonly",
+      "base:table:read",
+      "wiki:node:read",
+      "wiki:wiki",
+      "wiki:wiki:readonly",
+      "base:field:read",
+      "base:record:retrieve",
+      "contact:user.employee_id:readonly"
+    ]
+  },
+  "events": {
+    "items": {
+      "user": [],
+      "tenant": []
+    }
+  }
+}

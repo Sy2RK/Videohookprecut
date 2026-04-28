@@ -31,11 +31,6 @@ temp/
 # 日志
 logs/*.log
 
-# 模型权重（文件较大）
-models/weights/*.pt
-models/weights/*.onnx
-models/trademark_train/
-
 # 输入视频（不提交原始素材）
 input/
 

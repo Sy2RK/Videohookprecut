@@ -1,0 +1,7 @@
+{
+  "code": {
+    "entry": "main.js",
+    "work_dir": "code",
+    "runtime": "nodejs"
+  }
+}

@@ -1,13 +1,12 @@
 """视频结构分析模块
 
-整合多模态AI和YOLO检测结果，确定最终的视频分段：
+整合多模态AI分析结果，确定最终的视频分段：
 Hook（开头纯图像）+ Gameplay（玩法展示）+ 商标/Try Now（结尾）
 
 核心逻辑：
 1. 多模态AI分析视频整体结构，获取 hook_end 和 trademark_start
-2. YOLO 精确定位商标帧，微调 trademark_start 时间戳
-3. 如果 AI 和 YOLO 结果冲突，以 YOLO 为准
-4. 如果 AI 判断无 Hook，标记为丢弃
+2. 如果 AI 判断无 Hook，标记为丢弃
+3. 商标最小时长验证（防止AI幻觉）
 """
 
 import logging
@@ -15,11 +14,22 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .config import Config
-from .analyzer import VideoStructure, MultimodalAnalyzer
-from .segmenter import TimeSegment
-from .detector import VideoDetectionResult
+from .analyzer import VideoStructure
 
 logger = logging.getLogger("videoprecut.structurer")
+
+
+@dataclass
+class TimeSegment:
+    """时间段"""
+
+    start: float  # 起始时间（秒）
+    end: float  # 结束时间（秒）
+
+    @property
+    def duration(self) -> float:
+        """时长"""
+        return max(0.0, self.end - self.start)
 
 
 @dataclass
@@ -40,7 +50,6 @@ class VideoStructureResult:
 
     # 元信息
     ai_confidence: float = 0.0  # AI分析置信度
-    yolo_refined: bool = False  # YOLO是否微调了结果
 
     @property
     def hook_duration(self) -> float:
@@ -60,15 +69,13 @@ class VideoStructureResult:
 
 def analyze_video_structure(
     ai_structure: VideoStructure,
-    detection_result: Optional[VideoDetectionResult],
     video_duration: float,
     config: Config,
 ) -> VideoStructureResult:
-    """整合AI和YOLO结果，确定最终视频分段
+    """整合AI分析结果，确定最终视频分段
 
     Args:
         ai_structure: 多模态AI分析的视频结构
-        detection_result: YOLO检测结果（可选，无模型时为None）
         video_duration: 视频总时长
         config: 全局配置
 
@@ -95,7 +102,7 @@ def analyze_video_structure(
     # ── 情况2: 有Hook → 三段式分段 ──
     hook_end = ai_structure.hook_end_seconds
     trademark_start = ai_structure.trademark_start_seconds
-    has_trademark = ai_structure.has_trademark  # 使用局部变量，避免修改输入参数
+    has_trademark = ai_structure.has_trademark
 
     # Hook安全缓冲：从AI判断的hook_end提前，确保Hook中不含任何Gameplay内容
     hook_end_raw = hook_end
@@ -132,51 +139,16 @@ def analyze_video_structure(
 
     # ── 无商标检查 → 丢弃 ──
     if not has_trademark:
-        # AI判断无商标，再检查YOLO是否补充检测到
-        yolo_found = False
-        if detection_result and detection_result.has_trademark:
-            yolo_trademark_start = _find_earliest_trademark_time(detection_result)
-            if yolo_trademark_start is not None:
-                yolo_duration = video_duration - yolo_trademark_start
-                if yolo_duration >= config.trademark_min_duration:
-                    logger.info(
-                        f"AI未检测到商标，但YOLO检测到 {yolo_trademark_start:.1f}s "
-                        f"(时长{yolo_duration:.1f}s)，以YOLO为准"
-                    )
-                    trademark_start = yolo_trademark_start
-                    yolo_found = True
-                else:
-                    logger.info(
-                        f"YOLO检测到商标但时长过短({yolo_duration:.1f}s)，忽略"
-                    )
+        if config.discard_no_trademark:
+            result.should_discard = True
+            logger.info("无商标/结束画面，素材将被丢弃")
+        else:
+            result.has_trademark = False
+            result.gameplay_segment = TimeSegment(start=hook_end, end=video_duration)
+            logger.info("无商标但配置为不丢弃，Hook后全部作为gameplay")
+        return result
 
-        if not yolo_found:
-            if config.discard_no_trademark:
-                result.should_discard = True
-                logger.info("无商标/结束画面，素材将被丢弃")
-            else:
-                result.has_trademark = False
-                result.gameplay_segment = TimeSegment(start=hook_end, end=video_duration)
-                logger.info("无商标但配置为不丢弃，Hook后全部作为gameplay")
-            return result
-
-    # YOLO微调商标起始时间
-    yolo_refined = False
-    if detection_result and detection_result.has_trademark:
-        yolo_trademark_start = _find_earliest_trademark_time(detection_result)
-
-        if yolo_trademark_start is not None:
-            # 如果两者都检测到，以YOLO为准（更精确）
-            if abs(yolo_trademark_start - trademark_start) > 1.0:
-                logger.info(
-                    f"YOLO微调商标起始时间: AI={trademark_start:.1f}s → "
-                    f"YOLO={yolo_trademark_start:.1f}s"
-                )
-                trademark_start = yolo_trademark_start
-                yolo_refined = True
-
-    result.yolo_refined = yolo_refined
-    result.has_trademark = True  # 走到这里说明AI或YOLO确认有商标
+    result.has_trademark = True
 
     # 确保时间戳合理性
     hook_end = max(0.0, min(hook_end, video_duration))
@@ -205,52 +177,3 @@ def analyze_video_structure(
     )
 
     return result
-
-
-def _find_earliest_trademark_time(
-    detection_result: VideoDetectionResult,
-) -> Optional[float]:
-    """从YOLO检测结果中找到最早的商标出现时间
-
-    Args:
-        detection_result: YOLO检测结果
-
-    Returns:
-        最早商标时间戳，或None
-    """
-    if not detection_result.detections:
-        return None
-
-    # 找到最早的检测时间戳
-    earliest = min(d.timestamp for d in detection_result.detections)
-
-    # 找到连续商标片段的起始时间
-    # 使用与segmenter类似的逻辑，但更简单：找第一组连续检测帧
-    timestamps = sorted(set(d.timestamp for d in detection_result.detections))
-    if not timestamps:
-        return None
-
-    # 从后往前找商标区域（商标通常在视频末尾）
-    # 找到最后一组连续的商标帧
-    fps = detection_result.fps
-    frame_interval = 1.0 / fps if fps > 0 else 0.033
-    gap_threshold = 1.0  # 1秒间隔视为同一片段
-
-    # 从后往前扫描，找到最后一组商标的起始时间
-    groups = []
-    current_group = [timestamps[0]]
-
-    for i in range(1, len(timestamps)):
-        if timestamps[i] - timestamps[i - 1] <= gap_threshold:
-            current_group.append(timestamps[i])
-        else:
-            groups.append(current_group)
-            current_group = [timestamps[i]]
-    groups.append(current_group)
-
-    # 取最后一组（最可能是结尾商标）
-    if groups:
-        last_group = groups[-1]
-        return last_group[0]
-
-    return timestamps[0]

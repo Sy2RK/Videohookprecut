@@ -1,14 +1,13 @@
 """主入口模块 - V2 工作流编排
 
 V2 工作流：
-1. 扫描 input/ 目录
+1. 扫描 input/ 目录（递归，支持产品子目录）
 2. 格式检查与转换
 3. 多模态AI分析视频结构（检测Hook/Gameplay/商标三段式）
 4. 无Hook或无商标的素材直接丢弃
-5. YOLO精确定位商标（可选，微调时间戳）
-6. 剪切Hook/Gameplay视频 → output/batch_XXX/{video_stem}/
-7. AI分析Hook元素（描述+情感+过渡方式）
-8. 保存JSON元数据 → output/batch_XXX/{video_stem}/analysis.json
+5. 剪切Hook/Gameplay视频 → output/batch_XXX/{video_stem}/
+6. AI分析Hook元素（描述+情感+过渡方式）
+7. 保存JSON元数据 → output/batch_XXX/{video_stem}/analysis.json
 """
 
 import argparse
@@ -28,9 +27,8 @@ except ImportError:
 from .config import Config
 from .ingestion import VideoInfo, scan_input_dir
 from .converter import ensure_mp4, cleanup_converted
-from .detector import TrademarkDetector
 from .analyzer import MultimodalAnalyzer
-from .structurer import analyze_video_structure, VideoStructureResult
+from .structurer import analyze_video_structure
 from .editor import cut_segment
 from .parallel import run_parallel, summarize_results
 from .utils import (
@@ -39,7 +37,6 @@ from .utils import (
     sample_keyframes,
     extract_segment_frames,
     save_metadata,
-    format_timestamp,
 )
 
 logger = logging.getLogger("videoprecut")
@@ -49,7 +46,6 @@ def process_video(
     video: VideoInfo,
     config: Config,
     analyzer: Optional[MultimodalAnalyzer] = None,
-    detector: Optional[TrademarkDetector] = None,
 ) -> dict:
     """处理单个视频的完整V2流程
 
@@ -57,7 +53,6 @@ def process_video(
         video: 视频信息对象
         config: 全局配置
         analyzer: 多模态分析器（可选，未传入时自动创建）
-        detector: 商标检测器（可选，未传入时自动创建）
 
     Returns:
         处理结果字典
@@ -106,23 +101,9 @@ def process_video(
             logger.info(f"  采样到 {len(frames)} 个关键帧")
             ai_structure = analyzer.analyze_video_structure(frames, video.duration)
 
-        # ── 步骤3: YOLO精确定位商标（可选） ──
-        detection_result = None
-        if os.path.exists(config.model_weights):
-            logger.info(f"[3/5] YOLO商标检测: {video.filename}")
-            try:
-                if detector is None:
-                    detector = TrademarkDetector(config)
-                detection_result = detector.detect_video(mp4_path)
-            except Exception as e:
-                logger.warning(f"YOLO检测失败，仅使用AI结果: {e}")
-        else:
-            logger.info(f"[3/5] YOLO模型不存在，跳过商标检测")
-
-        # ── 整合AI和YOLO结果 ──
+        # ── 步骤3: 整合AI分析结果 ──
         structure = analyze_video_structure(
             ai_structure=ai_structure,
-            detection_result=detection_result,
             video_duration=video.duration,
             config=config,
         )
@@ -251,7 +232,6 @@ def process_video(
                 "total_duration": video.duration,
             },
             "ai_confidence": structure.ai_confidence,
-            "yolo_refined": structure.yolo_refined,
             "processing_time": 0.0,  # 后面更新
         }
 
@@ -285,21 +265,15 @@ def process_serial(videos: List[VideoInfo], config: Config) -> List[dict]:
     results = []
     total = len(videos)
 
-    # 在循环外创建共享的 analyzer 和 detector（避免每个视频重复初始化）
+    # 在循环外创建共享的 analyzer（避免每个视频重复初始化）
     analyzer = MultimodalAnalyzer(config)
-    detector = None
-    if os.path.exists(config.model_weights):
-        try:
-            detector = TrademarkDetector(config)
-        except Exception as e:
-            logger.warning(f"YOLO检测器初始化失败: {e}")
 
     for i, video in enumerate(videos, 1):
         logger.info(f"\n{'='*60}")
         logger.info(f"处理视频 [{i}/{total}]: {video.filename}")
         logger.info(f"{'='*60}")
 
-        result = process_video(video, config, analyzer=analyzer, detector=detector)
+        result = process_video(video, config, analyzer=analyzer)
         results.append(result)
 
         status = "✓" if result["success"] else "✗"
@@ -342,7 +316,6 @@ def main():
     # 路径参数
     parser.add_argument("--input", type=str, default="input", help="输入视频目录")
     parser.add_argument("--output", type=str, default="output", help="输出根目录")
-    parser.add_argument("--model", type=str, default="models/weights/best.pt", help="YOLO模型权重路径")
 
     # AI参数（从环境变量读取默认值，.env文件已加载）
     parser.add_argument("--ai-provider", type=str,
@@ -363,8 +336,7 @@ def main():
     parser.add_argument("--ai-temperature", type=float, default=0.3,
                         help="AI生成温度")
 
-    # 检测参数
-    parser.add_argument("--conf", type=float, default=0.5, help="YOLO检测置信度阈值")
+    # 采样参数
     parser.add_argument("--sample-count", type=int, default=8,
                         help="视频结构分析采样帧数")
 
@@ -392,9 +364,6 @@ def main():
     parser.add_argument("--ffmpeg-timeout", type=int, default=300,
                         help="FFmpeg操作超时时间(秒)")
 
-    # 硬件参数
-    parser.add_argument("--device", type=str, default="0", help="设备(GPU ID或cpu)")
-    parser.add_argument("--batch-size", type=int, default=16, help="YOLO推理批大小")
 
     # 并行参数
     parser.add_argument("--parallel", action="store_true", default=True,
@@ -419,14 +388,10 @@ def main():
         input_dir=args.input,
         output_dir=args.output,
         batch_dir=os.path.join(args.output, batch_name),
-        model_weights=args.model,
-        confidence_threshold=args.conf,
         buffer_before_sec=args.buffer,
         buffer_after_sec=args.buffer,
         crf=args.crf,
         preset=args.preset,
-        device=args.device,
-        batch_size=args.batch_size,
         use_parallel=not args.no_parallel and args.parallel,
         max_workers=args.workers,
         gpu_ids=[int(g.strip()) for g in args.gpus.split(",")],

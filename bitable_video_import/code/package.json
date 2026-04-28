@@ -1,0 +1,12 @@
+{
+  "name": "ai-project",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "dotenv -e .env -- node code/main.js"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.0.0",
+    "dotenv-cli": "^8.0.0"
+  }
+}

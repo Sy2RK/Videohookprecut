@@ -59,7 +59,6 @@ def worker(
     setup_logging()
 
     config = Config.from_dict(config_dict)
-    config.device = str(gpu_id)
 
     start_time = time.time()
     result = ProcessResult(video_path=video_path)

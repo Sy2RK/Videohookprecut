@@ -13,30 +13,17 @@ class Config:
     input_dir: str = "input"
     output_dir: str = "output"
     batch_dir: str = ""  # 批次输出目录，运行时自动生成（output/batch_YYYYMMDD_HHMMSS）
-    model_weights: str = "models/weights/best.pt"
-    trademark_dir: str = "trademarks"
     temp_dir: str = "temp"
-
-    # ── 检测配置 ──
-    confidence_threshold: float = 0.5  # YOLO 检测置信度阈值
-    iou_threshold: float = 0.45  # NMS 的 IoU 阈值
-    frame_sample_rate: int = 1  # 帧采样率 (1=每帧检测, 2=隔帧检测)
 
     # ── 剪辑配置 ──
     buffer_before_sec: float = 0.3  # 商标片段前缓冲时长(秒)
     buffer_after_sec: float = 0.3  # 商标片段后缓冲时长(秒)
-    min_segment_sec: float = 0.1  # 最小商标片段时长(秒)，低于此值忽略
-    merge_gap_sec: float = 0.5  # 相邻商标片段间隔小于此值时合并
 
     # ── 转换配置 ──
     video_codec: str = "libx264"  # 输出视频编码
     audio_codec: str = "aac"  # 输出音频编码
     crf: int = 18  # 恒定质量因子 (0-51, 越小质量越高)
     preset: str = "medium"  # 编码预设
-
-    # ── 硬件配置 ──
-    device: str = "0"  # GPU 设备号, "cpu" 表示使用 CPU
-    batch_size: int = 16  # YOLO 推理批大小
 
     # ── 并行配置 ──
     use_parallel: bool = True  # 是否启用并行处理
@@ -73,22 +60,13 @@ class Config:
             "input_dir": self.input_dir,
             "output_dir": self.output_dir,
             "batch_dir": self.batch_dir,
-            "model_weights": self.model_weights,
-            "trademark_dir": self.trademark_dir,
             "temp_dir": self.temp_dir,
-            "confidence_threshold": self.confidence_threshold,
-            "iou_threshold": self.iou_threshold,
-            "frame_sample_rate": self.frame_sample_rate,
             "buffer_before_sec": self.buffer_before_sec,
             "buffer_after_sec": self.buffer_after_sec,
-            "min_segment_sec": self.min_segment_sec,
-            "merge_gap_sec": self.merge_gap_sec,
             "video_codec": self.video_codec,
             "audio_codec": self.audio_codec,
             "crf": self.crf,
             "preset": self.preset,
-            "device": self.device,
-            "batch_size": self.batch_size,
             "use_parallel": self.use_parallel,
             "max_workers": self.max_workers,
             "gpu_ids": self.gpu_ids,
@@ -122,7 +100,6 @@ class Config:
         if self.batch_dir:
             os.makedirs(self.batch_dir, exist_ok=True)
         os.makedirs(self.temp_dir, exist_ok=True)
-        os.makedirs(os.path.dirname(self.model_weights), exist_ok=True)
 
     def get_video_output_dir(self, video_stem: str) -> str:
         """获取单个视频的输出目录
