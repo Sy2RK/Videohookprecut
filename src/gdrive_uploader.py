@@ -101,12 +101,13 @@ class GDriveUploader:
             root_folder = self._service.files().get(
                 fileId=self.root_folder_id,
                 fields="id, name",
+                supportsAllDrives=True,
             ).execute()
             logger.info(f"根文件夹验证成功: {root_folder['name']} ({root_folder['id']})")
         except Exception as e:
             raise RuntimeError(
                 f"无法访问根文件夹 {self.root_folder_id}，"
-                f"请确认已将该文件夹共享给服务账号邮箱。错误: {e}"
+                f"请确认已将该文件夹共享给服务账号邮箱（Shared Drive 需将服务账号添加为成员）。错误: {e}"
             )
 
     def upload_batch(self, batch_dir: str, results: List[dict]) -> dict:
@@ -267,6 +268,8 @@ class GDriveUploader:
                 spaces="drive",
                 fields="files(id, name)",
                 pageSize=1,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             ).execute()
 
             files = response.get("files", [])
@@ -295,6 +298,7 @@ class GDriveUploader:
         folder = self._service.files().create(
             body=file_metadata,
             fields="id",
+            supportsAllDrives=True,
         ).execute()
 
         return folder["id"]
@@ -368,6 +372,8 @@ class GDriveUploader:
                 spaces="drive",
                 fields="files(id, name)",
                 pageSize=1,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             ).execute()
 
             files = response.get("files", [])
@@ -397,6 +403,7 @@ class GDriveUploader:
             body=file_metadata,
             media_body=media,
             fields="id",
+            supportsAllDrives=True,
         )
 
         return self._execute_resumable(request, filename)
@@ -416,6 +423,7 @@ class GDriveUploader:
             fileId=file_id,
             media_body=media,
             fields="id",
+            supportsAllDrives=True,
         )
 
         return self._execute_resumable(request, filename)
