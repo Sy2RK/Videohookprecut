@@ -60,6 +60,8 @@ def process_video(
     start_time = time.time()
     result = {
         "video": video.filename,
+        "video_stem": video.stem,
+        "product": video.product,
         "success": False,
         "discarded": False,
         "discard_reason": "",
@@ -204,6 +206,7 @@ def process_video(
         # 保存JSON元数据
         metadata = {
             "filename": video.filename,
+            "product": video.product,
             "has_hook": structure.has_hook,
             "hook_description": hook_description,
             "hook_emotion": hook_emotion,
@@ -374,6 +377,14 @@ def main():
                         help="最大工作进程数")
     parser.add_argument("--gpus", type=str, default="0",
                         help="可用GPU列表(逗号分隔)")
+
+    # Google Drive 参数
+    parser.add_argument("--gdrive", action="store_true",
+                        help="启用 Google Drive 上传")
+    parser.add_argument("--gdrive-folder", type=str, default="",
+                        help="Google Drive 根文件夹 ID")
+    parser.add_argument("--gdrive-creds", type=str, default="credentials.json",
+                        help="Google Drive 服务账号密钥文件路径")
     parser.add_argument("--limit", type=int, default=0,
                         help="限制处理视频数量(0=全部)")
 
@@ -409,6 +420,9 @@ def main():
         discard_no_trademark=not args.no_discard_no_trademark,
         trademark_min_duration=args.trademark_min_duration,
         ffmpeg_timeout=args.ffmpeg_timeout,
+        gdrive_enabled=args.gdrive or bool(os.environ.get("GDRIVE_ENABLED", "").lower() in ("true", "1", "yes")),
+        gdrive_credentials_path=args.gdrive_creds or os.environ.get("GDRIVE_CREDENTIALS_PATH", "credentials.json"),
+        gdrive_root_folder_id=args.gdrive_folder or os.environ.get("GDRIVE_ROOT_FOLDER_ID", ""),
     )
 
     # 确保目录存在
@@ -498,6 +512,29 @@ def main():
 
     # 清理格式转换产生的临时文件
     cleanup_converted(config)
+
+    # ── Google Drive 上传 ──
+    if config.gdrive_enabled and config.gdrive_root_folder_id:
+        logger.info("")
+        logger.info("=" * 60)
+        logger.info("Google Drive 上传")
+        logger.info("=" * 60)
+        try:
+            from .gdrive_uploader import GDriveUploader
+
+            uploader = GDriveUploader(
+                credentials_path=config.gdrive_credentials_path,
+                root_folder_id=config.gdrive_root_folder_id,
+            )
+            upload_summary = uploader.upload_batch(config.batch_dir, results)
+            logger.info(
+                f"Google Drive 上传完成: "
+                f"{upload_summary['uploaded']} 成功, "
+                f"{upload_summary['failed']} 失败, "
+                f"{upload_summary['skipped']} 跳过"
+            )
+        except Exception as e:
+            logger.error(f"Google Drive 上传失败: {e}", exc_info=True)
 
     logger.info("工作流执行完毕")
 

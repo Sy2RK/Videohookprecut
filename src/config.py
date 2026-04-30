@@ -49,6 +49,11 @@ class Config:
     trademark_min_duration: float = 2.0  # 商标最小时长（秒），低于此值视为AI误判，不算商标
     ffmpeg_timeout: int = 300  # FFmpeg 操作超时时间（秒）
 
+    # ── Google Drive 上传配置 ──
+    gdrive_enabled: bool = False  # 是否启用 Google Drive 上传
+    gdrive_credentials_path: str = "credentials.json"  # 服务账号密钥文件路径
+    gdrive_root_folder_id: str = ""  # Google Drive 根文件夹 ID
+
     # ── 支持的视频格式 ──
     supported_formats: List[str] = field(
         default_factory=lambda: [".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv"]
@@ -85,6 +90,9 @@ class Config:
             "discard_no_trademark": self.discard_no_trademark,
             "trademark_min_duration": self.trademark_min_duration,
             "ffmpeg_timeout": self.ffmpeg_timeout,
+            "gdrive_enabled": self.gdrive_enabled,
+            "gdrive_credentials_path": self.gdrive_credentials_path,
+            "gdrive_root_folder_id": self.gdrive_root_folder_id,
             "supported_formats": self.supported_formats,
         }
 

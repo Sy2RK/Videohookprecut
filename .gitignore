@@ -31,6 +31,9 @@ temp/
 # 日志
 logs/*.log
 
+# Google Drive 凭据（包含密钥，绝不提交）
+credentials.json
+
 # 输入视频（不提交原始素材）
 input/
 

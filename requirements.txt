@@ -11,3 +11,8 @@ requests>=2.28.0        # HTTP 请求（飞书API）
 # 多模态AI依赖
 openai>=1.0.0           # OpenAI API（ai-provider=openai/dashscope时都需要，DashScope使用OpenAI兼容接口）
 # anthropic>=0.20.0     # Claude Vision API（ai-provider=anthropic时需要，取消注释安装）
+
+# Google Drive 上传依赖
+google-api-python-client>=2.0.0   # Google Drive API
+google-auth>=2.0.0                # Google 认证
+google-auth-httplib2>=0.1.0       # Google 认证 HTTP 适配
