@@ -241,11 +241,8 @@ class GDriveUploader:
         parent_id = batch_folder_id or self.root_folder_id
 
         try:
-            # 确保产品文件夹存在（在批次文件夹下）
-            product_folder_id = self._ensure_folder(product, parent_id)
-
-            # 确保视频子文件夹存在
-            video_folder_id = self._ensure_folder(video_stem, product_folder_id)
+            # 确保视频子文件夹存在（直接在批次文件夹下）
+            video_folder_id = self._ensure_folder(video_stem, parent_id)
 
             # 上传每个文件
             for filename in self.UPLOAD_FILES:
