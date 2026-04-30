@@ -110,6 +110,60 @@ class GDriveUploader:
                 f"请确认已将该文件夹共享给服务账号邮箱（Shared Drive 需将服务账号添加为成员）。错误: {e}"
             )
 
+    def _get_batch_folder_name(self) -> str:
+        """生成批次文件夹名称: Hooks_YYMMDD 或 Hooks_YYMMDD_N
+
+        如果同一天已有同名文件夹，自动追加序号。
+
+        Returns:
+            批次文件夹名称
+        """
+        from datetime import datetime
+
+        date_str = datetime.now().strftime("%y%m%d")
+        base_name = f"Hooks_{date_str}"
+
+        # 检查根文件夹下是否已有同名文件夹
+        existing = self._find_folder(base_name, self.root_folder_id)
+        if not existing:
+            return base_name
+
+        # 同名已存在，查找最大序号
+        # 列出所有 Hooks_YYMMDD 开头的文件夹
+        try:
+            query = (
+                f"name contains 'Hooks_{date_str}' and "
+                f"'{self.root_folder_id}' in parents and "
+                f"mimeType='application/vnd.google-apps.folder' and "
+                f"trashed=false"
+            )
+            response = self._service.files().list(
+                q=query,
+                spaces="drive",
+                fields="files(id, name)",
+                pageSize=100,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute()
+
+            existing_names = [f["name"] for f in response.get("files", [])]
+            max_seq = 1
+            for name in existing_names:
+                # 匹配 Hooks_YYMMDD_N 格式
+                if name == base_name:
+                    max_seq = max(max_seq, 1)
+                elif name.startswith(f"{base_name}_"):
+                    try:
+                        seq = int(name.split("_")[-1])
+                        max_seq = max(max_seq, seq)
+                    except ValueError:
+                        pass
+
+            return f"{base_name}_{max_seq + 1}"
+
+        except Exception:
+            return f"{base_name}_2"
+
     def upload_batch(self, batch_dir: str, results: List[dict]) -> dict:
         """上传整个批次的处理结果
 
@@ -120,6 +174,11 @@ class GDriveUploader:
         Returns:
             上传汇总 {"uploaded": N, "failed": N, "skipped": N, "details": [...]}
         """
+        # 创建批次文件夹: Hooks_YYMMDD 或 Hooks_YYMMDD_N
+        batch_folder_name = self._get_batch_folder_name()
+        batch_folder_id = self._ensure_folder(batch_folder_name, self.root_folder_id)
+        logger.info(f"批次文件夹: {batch_folder_name} ({batch_folder_id})")
+
         upload_results = []
         uploaded = 0
         failed = 0
@@ -141,7 +200,7 @@ class GDriveUploader:
                 continue
 
             logger.info(f"上传: {product}/{video_stem}")
-            upload_result = self.upload_video(video_dir, product)
+            upload_result = self.upload_video(video_dir, product, batch_folder_id)
             upload_results.append(upload_result)
 
             if upload_result.success:
@@ -165,12 +224,13 @@ class GDriveUploader:
         )
         return summary
 
-    def upload_video(self, video_dir: str, product: str) -> UploadResult:
+    def upload_video(self, video_dir: str, product: str, batch_folder_id: str = None) -> UploadResult:
         """上传单个视频的所有输出文件
 
         Args:
             video_dir: 视频输出目录（包含 hook.mp4, gameplay.mp4, analysis.json）
             product: 产品名称（用于创建子文件夹）
+            batch_folder_id: 批次文件夹 ID（默认使用根文件夹）
 
         Returns:
             UploadResult
@@ -178,12 +238,14 @@ class GDriveUploader:
         video_stem = os.path.basename(video_dir)
         result = UploadResult(video_stem=video_stem, product=product)
 
+        parent_id = batch_folder_id or self.root_folder_id
+
         try:
-            # 确保产品文件夹存在
-            product_folder_id = self._ensure_product_folder(product)
+            # 确保产品文件夹存在（在批次文件夹下）
+            product_folder_id = self._ensure_folder(product, parent_id)
 
             # 确保视频子文件夹存在
-            video_folder_id = self._ensure_video_folder(product_folder_id, video_stem)
+            video_folder_id = self._ensure_folder(video_stem, product_folder_id)
 
             # 上传每个文件
             for filename in self.UPLOAD_FILES:
@@ -204,44 +266,24 @@ class GDriveUploader:
 
         return result
 
-    def _ensure_product_folder(self, product: str) -> str:
-        """确保产品文件夹存在，不存在则创建
+    def _ensure_folder(self, name: str, parent_id: str) -> str:
+        """确保文件夹存在，不存在则创建
 
         Args:
-            product: 产品名称
+            name: 文件夹名称
+            parent_id: 父文件夹 ID
 
         Returns:
             文件夹 ID
         """
-        cache_key = f"product:{product}"
+        cache_key = f"folder:{parent_id}:{name}"
         if cache_key in self._folder_cache:
             return self._folder_cache[cache_key]
 
-        folder_id = self._find_folder(product, self.root_folder_id)
+        folder_id = self._find_folder(name, parent_id)
         if not folder_id:
-            folder_id = self._create_folder(product, self.root_folder_id)
-            logger.info(f"创建产品文件夹: {product} ({folder_id})")
-
-        self._folder_cache[cache_key] = folder_id
-        return folder_id
-
-    def _ensure_video_folder(self, parent_id: str, video_stem: str) -> str:
-        """确保视频子文件夹存在
-
-        Args:
-            parent_id: 父文件夹（产品文件夹）ID
-            video_stem: 视频文件名（不含扩展名）
-
-        Returns:
-            文件夹 ID
-        """
-        cache_key = f"video:{parent_id}:{video_stem}"
-        if cache_key in self._folder_cache:
-            return self._folder_cache[cache_key]
-
-        folder_id = self._find_folder(video_stem, parent_id)
-        if not folder_id:
-            folder_id = self._create_folder(video_stem, parent_id)
+            folder_id = self._create_folder(name, parent_id)
+            logger.info(f"创建文件夹: {name} ({folder_id})")
 
         self._folder_cache[cache_key] = folder_id
         return folder_id
