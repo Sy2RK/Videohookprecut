@@ -11,6 +11,7 @@ V2 工作流：
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -464,10 +465,16 @@ def main():
     run_workflow(config, limit=args.limit)
 
 
+# 已处理视频记录文件（包含成功和丢弃的）
+PROCESSED_STEMS_FILE = "processed_stems.json"
+
+
 def _get_processed_stems(output_dir: str) -> set:
     """获取已处理的视频 stem 集合
 
-    扫描 output 目录下所有批次目录，收集已处理视频的 stem。
+    从两个来源收集：
+    1. processed_stems.json 记录文件（包含所有已处理视频，含丢弃的）
+    2. output 目录下的批次子目录（兜底，兼容旧数据）
 
     Args:
         output_dir: 输出根目录
@@ -476,18 +483,64 @@ def _get_processed_stems(output_dir: str) -> set:
         已处理的视频 stem 集合
     """
     processed = set()
-    if not os.path.isdir(output_dir):
-        return processed
 
-    for batch_name in os.listdir(output_dir):
-        batch_path = os.path.join(output_dir, batch_name)
-        if not os.path.isdir(batch_path) or not batch_name.startswith("batch_"):
-            continue
-        for stem in os.listdir(batch_path):
-            if os.path.isdir(os.path.join(batch_path, stem)):
-                processed.add(stem)
+    # 来源1：记录文件
+    record_path = os.path.join(output_dir, PROCESSED_STEMS_FILE)
+    if os.path.exists(record_path):
+        try:
+            with open(record_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                processed.update(data.get("stems", []))
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"读取处理记录失败: {e}")
+
+    # 来源2：扫描批次目录（兼容旧数据）
+    if os.path.isdir(output_dir):
+        for batch_name in os.listdir(output_dir):
+            batch_path = os.path.join(output_dir, batch_name)
+            if not os.path.isdir(batch_path) or not batch_name.startswith("batch_"):
+                continue
+            for stem in os.listdir(batch_path):
+                if os.path.isdir(os.path.join(batch_path, stem)):
+                    processed.add(stem)
 
     return processed
+
+
+def _record_processed_stems(output_dir: str, new_stems: list) -> None:
+    """记录已处理的视频 stem
+
+    Args:
+        output_dir: 输出根目录
+        new_stems: 本次新处理的视频 stem 列表
+    """
+    if not new_stems:
+        return
+
+    os.makedirs(output_dir, exist_ok=True)
+    record_path = os.path.join(output_dir, PROCESSED_STEMS_FILE)
+
+    # 读取已有记录
+    existing = set()
+    if os.path.exists(record_path):
+        try:
+            with open(record_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                existing.update(data.get("stems", []))
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    # 合并并写入
+    existing.update(new_stems)
+    data = {
+        "stems": sorted(existing),
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "total": len(existing),
+    }
+    with open(record_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    logger.debug(f"已记录 {len(new_stems)} 个处理视频，累计 {len(existing)} 个")
 
 
 def run_workflow(config: Config, limit: int = 0, incremental: bool = True) -> None:
@@ -593,6 +646,11 @@ def run_workflow(config: Config, limit: int = 0, incremental: bool = True) -> No
                 logger.info(f"  {r['video']}: {r['error']}")
 
     logger.info("=" * 60)
+
+    # ── 记录已处理的视频 stem（含丢弃的）──
+    if incremental:
+        processed_stems = [r["video_stem"] for r in results if r.get("video_stem")]
+        _record_processed_stems(config.output_dir, processed_stems)
 
     # 清理格式转换产生的临时文件
     cleanup_converted(config)
