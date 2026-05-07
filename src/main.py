@@ -420,7 +420,7 @@ def main():
         discard_no_trademark=not args.no_discard_no_trademark,
         trademark_min_duration=args.trademark_min_duration,
         ffmpeg_timeout=args.ffmpeg_timeout,
-        gdrive_enabled=args.gdrive or bool(os.environ.get("GDRIVE_ENABLED", "").lower() in ("true", "1", "yes")),
+        gdrive_enabled=args.gdrive or os.environ.get("GDRIVE_ENABLED", "").lower() in ("true", "1", "yes"),
         gdrive_credentials_path=args.gdrive_creds or os.environ.get("GDRIVE_CREDENTIALS_PATH", "credentials.json"),
         gdrive_root_folder_id=args.gdrive_folder or os.environ.get("GDRIVE_ROOT_FOLDER_ID", ""),
     )
@@ -472,43 +472,47 @@ def main():
     # ── 处理视频 ──
     total_start = time.time()
 
+    results = []  # 统一结果列表
+
     if config.use_parallel and len(videos) > 1:
         # 并行模式
         logger.info(f"使用并行模式处理 {len(videos)} 个视频")
         video_paths = [v.filepath for v in videos]
         parallel_results = run_parallel(video_paths, config)
         summary = summarize_results(parallel_results)
+        # 将并行结果转换为统一格式
+        results = parallel_results
     else:
         # 串行模式
         logger.info(f"使用串行模式处理 {len(videos)} 个视频")
         results = process_serial(videos, config)
 
-        # 汇总结果
-        success = sum(1 for r in results if r["success"])
-        failed = len(results) - success
-        discarded = sum(1 for r in results if r.get("discarded"))
-        discarded_no_hook = sum(1 for r in results if r.get("discard_reason") == "no_hook")
-        discarded_no_trademark = sum(1 for r in results if r.get("discard_reason") == "no_trademark")
-        total_time = time.time() - total_start
+    # 汇总结果（串行/并行统一）
+    success = sum(1 for r in results if r["success"])
+    failed = len(results) - success
+    discarded = sum(1 for r in results if r.get("discarded"))
+    discarded_no_hook = sum(1 for r in results if r.get("discard_reason") == "no_hook")
+    discarded_no_trademark = sum(1 for r in results if r.get("discard_reason") == "no_trademark")
+    total_time = time.time() - total_start
 
-        logger.info("=" * 60)
-        logger.info("处理结果汇总")
-        logger.info("=" * 60)
-        logger.info(f"  总视频数: {len(results)}")
-        logger.info(f"  成功: {success}")
-        logger.info(f"  失败: {failed}")
-        logger.info(f"  丢弃(无Hook): {discarded_no_hook}")
-        logger.info(f"  丢弃(无商标): {discarded_no_trademark}")
-        logger.info(f"  总处理时间: {total_time:.1f}s")
+    logger.info("=" * 60)
+    logger.info("处理结果汇总")
+    logger.info("=" * 60)
+    logger.info(f"  总视频数: {len(results)}")
+    logger.info(f"  成功: {success}")
+    logger.info(f"  失败: {failed}")
+    logger.info(f"  丢弃(无Hook): {discarded_no_hook}")
+    logger.info(f"  丢弃(无商标): {discarded_no_trademark}")
+    logger.info(f"  总处理时间: {total_time:.1f}s")
 
-        if failed > 0:
-            logger.info("")
-            logger.info("失败视频:")
-            for r in results:
-                if not r["success"]:
-                    logger.info(f"  {r['video']}: {r['error']}")
+    if failed > 0:
+        logger.info("")
+        logger.info("失败视频:")
+        for r in results:
+            if not r["success"]:
+                logger.info(f"  {r['video']}: {r['error']}")
 
-        logger.info("=" * 60)
+    logger.info("=" * 60)
 
     # 清理格式转换产生的临时文件
     cleanup_converted(config)

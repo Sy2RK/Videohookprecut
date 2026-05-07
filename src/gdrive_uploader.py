@@ -45,13 +45,14 @@ class GDriveUploader:
 
     文件夹结构:
         [root_folder]/
-        ├── 产品A/
+        ├── Hooks_YYMMDD/          ← 首次上传
         │   ├── video_stem_1/
         │   │   ├── hook.mp4
         │   │   ├── gameplay.mp4
         │   │   └── analysis.json
         │   └── video_stem_2/
-        └── 产品B/
+        ├── Hooks_YYMMDD_2/        ← 同日第二次上传
+        └── ...
     """
 
     # 上传重试配置
@@ -199,8 +200,8 @@ class GDriveUploader:
                 skipped += 1
                 continue
 
-            logger.info(f"上传: {product}/{video_stem}")
-            upload_result = self.upload_video(video_dir, product, batch_folder_id)
+            logger.info(f"上传: {video_stem}")
+            upload_result = self.upload_video(video_dir, batch_folder_id)
             upload_results.append(upload_result)
 
             if upload_result.success:
@@ -224,19 +225,18 @@ class GDriveUploader:
         )
         return summary
 
-    def upload_video(self, video_dir: str, product: str, batch_folder_id: str = None) -> UploadResult:
+    def upload_video(self, video_dir: str, batch_folder_id: str) -> UploadResult:
         """上传单个视频的所有输出文件
 
         Args:
             video_dir: 视频输出目录（包含 hook.mp4, gameplay.mp4, analysis.json）
-            product: 产品名称（用于创建子文件夹）
-            batch_folder_id: 批次文件夹 ID（默认使用根文件夹）
+            batch_folder_id: 批次文件夹 ID
 
         Returns:
             UploadResult
         """
         video_stem = os.path.basename(video_dir)
-        result = UploadResult(video_stem=video_stem, product=product)
+        result = UploadResult(video_stem=video_stem, product="")
 
         parent_id = batch_folder_id or self.root_folder_id
 
@@ -296,8 +296,10 @@ class GDriveUploader:
             文件夹 ID，不存在返回 None
         """
         try:
+            # 转义文件名中的单引号（Google Drive query 语法）
+            escaped_name = name.replace("\\", "\\\\").replace("'", "\\'")
             query = (
-                f"name='{name}' and "
+                f"name='{escaped_name}' and "
                 f"'{parent_id}' in parents and "
                 f"mimeType='application/vnd.google-apps.folder' and "
                 f"trashed=false"
@@ -401,8 +403,10 @@ class GDriveUploader:
             文件 ID，不存在返回 None
         """
         try:
+            # 转义文件名中的单引号（Google Drive query 语法）
+            escaped_name = name.replace("\\", "\\\\").replace("'", "\\'")
             query = (
-                f"name='{name}' and "
+                f"name='{escaped_name}' and "
                 f"'{parent_id}' in parents and "
                 f"trashed=false"
             )
