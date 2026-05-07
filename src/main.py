@@ -464,12 +464,39 @@ def main():
     run_workflow(config, limit=args.limit)
 
 
-def run_workflow(config: Config, limit: int = 0) -> None:
+def _get_processed_stems(output_dir: str) -> set:
+    """获取已处理的视频 stem 集合
+
+    扫描 output 目录下所有批次目录，收集已处理视频的 stem。
+
+    Args:
+        output_dir: 输出根目录
+
+    Returns:
+        已处理的视频 stem 集合
+    """
+    processed = set()
+    if not os.path.isdir(output_dir):
+        return processed
+
+    for batch_name in os.listdir(output_dir):
+        batch_path = os.path.join(output_dir, batch_name)
+        if not os.path.isdir(batch_path) or not batch_name.startswith("batch_"):
+            continue
+        for stem in os.listdir(batch_path):
+            if os.path.isdir(os.path.join(batch_path, stem)):
+                processed.add(stem)
+
+    return processed
+
+
+def run_workflow(config: Config, limit: int = 0, incremental: bool = True) -> None:
     """执行视频处理工作流
 
     Args:
         config: 全局配置
         limit: 限制处理视频数量（0=全部）
+        incremental: 是否增量模式（跳过已处理的视频）
     """
     logger.info("=" * 60)
     logger.info("竞品广告素材分析工作流 - Videoprecut V2")
@@ -503,6 +530,19 @@ def run_workflow(config: Config, limit: int = 0) -> None:
     if not videos:
         logger.warning("输入目录中没有找到视频文件")
         return
+
+    # ── 增量过滤：跳过已处理的视频 ──
+    if incremental:
+        processed_stems = _get_processed_stems(config.output_dir)
+        if processed_stems:
+            before_count = len(videos)
+            videos = [v for v in videos if v.stem not in processed_stems]
+            skipped_count = before_count - len(videos)
+            if skipped_count > 0:
+                logger.info(f"增量模式: 跳过 {skipped_count} 个已处理视频，剩余 {len(videos)} 个待处理")
+            if not videos:
+                logger.info("增量模式: 没有新视频需要处理")
+                return
 
     # 限制处理数量
     if limit > 0 and len(videos) > limit:
