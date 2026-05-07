@@ -290,6 +290,57 @@ def process_serial(videos: List[VideoInfo], config: Config) -> List[dict]:
     return results
 
 
+def process_concurrent(videos: List[VideoInfo], config: Config, max_workers: int = 4) -> List[dict]:
+    """并发处理视频（AI分析并发调用，FFmpeg串行执行）
+
+    使用 ThreadPoolExecutor 并发调用 AI API，充分利用网络等待时间。
+    每个线程拥有独立的 MultimodalAnalyzer 实例。
+
+    Args:
+        videos: 视频信息列表
+        config: 全局配置
+        max_workers: 最大并发数
+
+    Returns:
+        处理结果列表（按原始顺序）
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    total = len(videos)
+    logger.info(f"并发处理 {total} 个视频，AI 并发数: {max_workers}")
+
+    # 为每个线程创建独立的 analyzer
+    def _process_one(index: int, video: VideoInfo) -> tuple:
+        """处理单个视频，返回 (index, result)"""
+        analyzer = MultimodalAnalyzer(config)
+        logger.info(f"开始处理 [{index + 1}/{total}]: {video.filename}")
+        result = process_video(video, config, analyzer=analyzer)
+        status = "✓" if result["success"] else "✗"
+        discarded = " (已丢弃)" if result.get("discarded") else ""
+        logger.info(
+            f"{status} [{index + 1}/{total}] {video.filename}{discarded} - "
+            f"耗时 {result['duration_sec']:.1f}s"
+        )
+        return index, result
+
+    # 提交所有任务
+    futures = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for i, video in enumerate(videos):
+            future = executor.submit(_process_one, i, video)
+            futures[future] = i
+
+        # 收集结果
+        results = [None] * total
+        for future in as_completed(futures):
+            index, result = future.result()
+            results[index] = result
+
+    return results
+
+    return results
+
+
 def main():
     """命令行主入口"""
     parser = argparse.ArgumentParser(
@@ -608,13 +659,9 @@ def run_workflow(config: Config, limit: int = 0, incremental: bool = True) -> No
     results = []  # 统一结果列表
 
     if config.use_parallel and len(videos) > 1:
-        # 并行模式
-        logger.info(f"使用并行模式处理 {len(videos)} 个视频")
-        video_paths = [v.filepath for v in videos]
-        parallel_results = run_parallel(video_paths, config)
-        summary = summarize_results(parallel_results)
-        # 将并行结果转换为统一格式
-        results = parallel_results
+        # AI 并发模式（ThreadPoolExecutor，避免 multiprocessing 序列化问题）
+        logger.info(f"使用 AI 并发模式处理 {len(videos)} 个视频")
+        results = process_concurrent(videos, config, max_workers=config.max_workers)
     else:
         # 串行模式
         logger.info(f"使用串行模式处理 {len(videos)} 个视频")

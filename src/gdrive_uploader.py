@@ -175,24 +175,36 @@ class GDriveUploader:
         Returns:
             上传汇总 {"uploaded": N, "failed": N, "skipped": N, "details": [...]}
         """
-        # 创建批次文件夹: Hooks_YYMMDD 或 Hooks_YYMMDD_N
-        batch_folder_name = self._get_batch_folder_name()
-        batch_folder_id = self._ensure_folder(batch_folder_name, self.root_folder_id)
-        logger.info(f"批次文件夹: {batch_folder_name} ({batch_folder_id})")
-
         upload_results = []
         uploaded = 0
         failed = 0
         skipped = 0
 
+        # 先筛选可上传的视频，避免创建空批次文件夹
+        uploadable = []
         for result in results:
-            # 跳过丢弃和失败的视频
             if result.get("discarded") or not result.get("success"):
                 skipped += 1
                 continue
-
             video_stem = result.get("video_stem", "")
-            product = result.get("product", "未分类")
+            video_dir = os.path.join(batch_dir, video_stem)
+            if not os.path.isdir(video_dir):
+                logger.warning(f"视频目录不存在，跳过: {video_dir}")
+                skipped += 1
+                continue
+            uploadable.append(result)
+
+        if not uploadable:
+            logger.info("没有可上传的视频，跳过 Google Drive 上传")
+            return {"uploaded": 0, "failed": 0, "skipped": skipped, "total": len(results), "details": []}
+
+        # 创建批次文件夹: Hooks_YYMMDD 或 Hooks_YYMMDD_N
+        batch_folder_name = self._get_batch_folder_name()
+        batch_folder_id = self._ensure_folder(batch_folder_name, self.root_folder_id)
+        logger.info(f"批次文件夹: {batch_folder_name} ({batch_folder_id})")
+
+        for result in uploadable:
+            video_stem = result.get("video_stem", "")
             video_dir = os.path.join(batch_dir, video_stem)
 
             if not os.path.isdir(video_dir):
