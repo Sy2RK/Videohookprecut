@@ -54,6 +54,10 @@ class Config:
     gdrive_credentials_path: str = "credentials.json"  # 服务账号密钥文件路径
     gdrive_root_folder_id: str = ""  # Google Drive 根文件夹 ID
 
+    # ── 定时调度配置 ──
+    schedule_enabled: bool = False  # 是否启用每日定时运行
+    schedule_time: str = "12:00"  # 每日运行时间（北京时间，HH:MM 格式）
+
     # ── 支持的视频格式 ──
     supported_formats: List[str] = field(
         default_factory=lambda: [".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv"]
@@ -93,6 +97,8 @@ class Config:
             "gdrive_enabled": self.gdrive_enabled,
             "gdrive_credentials_path": self.gdrive_credentials_path,
             "gdrive_root_folder_id": self.gdrive_root_folder_id,
+            "schedule_enabled": self.schedule_enabled,
+            "schedule_time": self.schedule_time,
             "supported_formats": self.supported_formats,
         }
 

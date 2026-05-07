@@ -388,7 +388,17 @@ def main():
     parser.add_argument("--limit", type=int, default=0,
                         help="限制处理视频数量(0=全部)")
 
+    # 定时调度参数
+    parser.add_argument("--schedule", action="store_true",
+                        help="启用每日定时运行模式")
+    parser.add_argument("--schedule-time", type=str, default="",
+                        help="每日运行时间（北京时间，HH:MM 格式，默认 12:00）")
+
     args = parser.parse_args()
+
+    # ── 解析调度配置 ──
+    schedule_enabled = args.schedule or os.environ.get("SCHEDULE_ENABLED", "").lower() in ("true", "1", "yes")
+    schedule_time = args.schedule_time or os.environ.get("SCHEDULE_TIME", "12:00")
 
     # ── 初始化配置 ──
     # 生成批次目录名（时间戳）
@@ -423,6 +433,8 @@ def main():
         gdrive_enabled=args.gdrive or os.environ.get("GDRIVE_ENABLED", "").lower() in ("true", "1", "yes"),
         gdrive_credentials_path=args.gdrive_creds or os.environ.get("GDRIVE_CREDENTIALS_PATH", "credentials.json"),
         gdrive_root_folder_id=args.gdrive_folder or os.environ.get("GDRIVE_ROOT_FOLDER_ID", ""),
+        schedule_enabled=schedule_enabled,
+        schedule_time=schedule_time,
     )
 
     # 确保目录存在
@@ -431,6 +443,34 @@ def main():
     # ── 初始化日志 ──
     setup_logging()
 
+    # ── 定时调度模式 ──
+    if config.schedule_enabled:
+        from .scheduler import run_daily
+
+        logger.info(f"定时调度模式: 每日北京时间 {config.schedule_time} 运行")
+
+        def _daily_task():
+            """每日任务：重新生成批次目录并执行工作流"""
+            from datetime import datetime as dt
+            batch_name = f"batch_{dt.now().strftime('%Y%m%d_%H%M%S')}"
+            config.batch_dir = os.path.join(config.output_dir, batch_name)
+            config.ensure_dirs()
+            run_workflow(config, limit=args.limit)
+
+        run_daily(_daily_task, schedule_time=config.schedule_time)
+        return
+
+    # ── 单次运行模式 ──
+    run_workflow(config, limit=args.limit)
+
+
+def run_workflow(config: Config, limit: int = 0) -> None:
+    """执行视频处理工作流
+
+    Args:
+        config: 全局配置
+        limit: 限制处理视频数量（0=全部）
+    """
     logger.info("=" * 60)
     logger.info("竞品广告素材分析工作流 - Videoprecut V2")
     logger.info("=" * 60)
@@ -462,12 +502,12 @@ def main():
     videos = scan_input_dir(config)
     if not videos:
         logger.warning("输入目录中没有找到视频文件")
-        sys.exit(0)
+        return
 
     # 限制处理数量
-    if args.limit > 0 and len(videos) > args.limit:
-        logger.info(f"限制处理数量: {len(videos)} → {args.limit}")
-        videos = videos[:args.limit]
+    if limit > 0 and len(videos) > limit:
+        logger.info(f"限制处理数量: {len(videos)} → {limit}")
+        videos = videos[:limit]
 
     # ── 处理视频 ──
     total_start = time.time()
