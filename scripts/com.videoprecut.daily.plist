@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.videoprecut.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/sheny2/Workspace/Videoprecut/scripts/run_daily.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <!-- 北京时间 12:00 = UTC 04:00 -->
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/sheny2/Workspace/Videoprecut/logs/launchd_stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/sheny2/Workspace/Videoprecut/logs/launchd_stderr.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/sheny2/Workspace/Videoprecut</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
