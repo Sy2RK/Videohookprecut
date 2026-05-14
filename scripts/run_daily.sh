@@ -22,8 +22,17 @@ set -a
 source "${PROJECT_DIR}/.env" 2>/dev/null
 set +a
 
-# 执行工作流
+# ── 步骤1: 从飞书多维表格下载新视频 ──
 cd "$PROJECT_DIR"
+echo "" >> "$LOG_FILE"
+echo "── 步骤1: 从飞书下载新视频 ──" >> "$LOG_FILE"
+"$VENV_PYTHON" -m src.bitable_import >> "$LOG_FILE" 2>&1
+IMPORT_EXIT=$?
+echo "飞书导入退出码: $IMPORT_EXIT" >> "$LOG_FILE"
+
+# ── 步骤2: 处理视频并上传云盘 ──
+echo "" >> "$LOG_FILE"
+echo "── 步骤2: 处理视频并上传云盘 ──" >> "$LOG_FILE"
 "$VENV_PYTHON" -m src.main --gdrive >> "$LOG_FILE" 2>&1
 
 EXIT_CODE=$?

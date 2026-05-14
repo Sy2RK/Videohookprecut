@@ -350,8 +350,13 @@ class FeishuClient:
                 )
 
                 if resp.status_code != 200:
+                    # 尝试读取错误详情
+                    try:
+                        err_body = resp.text[:200]
+                    except Exception:
+                        err_body = "(无法读取)"
                     logger.warning(
-                        f"下载返回非 200: {resp.status_code} - {filename}"
+                        f"下载返回非 200: {resp.status_code} - {filename} - {err_body}"
                     )
                     if attempt < self.config.max_retries - 1:
                         time.sleep(2 ** attempt)
@@ -389,6 +394,74 @@ class FeishuClient:
                     time.sleep(2 ** attempt)
 
         logger.error(f"  下载失败（已重试{self.config.max_retries}次）: {filename}")
+        return False
+
+    def download_url(
+        self, url: str, save_dir: str, filename: str,
+    ) -> bool:
+        """从 HTTP URL 下载视频文件
+
+        Args:
+            url: 视频 URL
+            save_dir: 保存目录
+            filename: 保存文件名
+
+        Returns:
+            下载成功返回 True，失败返回 False
+        """
+        os.makedirs(save_dir, exist_ok=True)
+        filepath = os.path.join(save_dir, filename)
+
+        for attempt in range(self.config.max_retries):
+            try:
+                self.rate_limiter.wait()
+                resp = requests.get(
+                    url, stream=True,
+                    timeout=self.config.timeout,
+                    headers={"User-Agent": "Videoprecut/1.0"},
+                )
+
+                if resp.status_code != 200:
+                    logger.warning(
+                        f"URL下载返回非 200: {resp.status_code} - {filename}"
+                    )
+                    if attempt < self.config.max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                    return False
+
+                # 流式写入
+                with open(filepath, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+
+                # 验证文件
+                if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+                    size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                    logger.info(f"  ✓ 下载完成: {filename} ({size_mb:.1f}MB)")
+                    return True
+                else:
+                    logger.warning(f"  下载文件为空: {filename}")
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+
+            except requests.Timeout:
+                logger.warning(
+                    f"  URL下载超时 (尝试 {attempt + 1}/{self.config.max_retries}): "
+                    f"{filename}"
+                )
+                if attempt < self.config.max_retries - 1:
+                    time.sleep(2 ** attempt)
+            except Exception as e:
+                logger.warning(
+                    f"  URL下载异常 (尝试 {attempt + 1}/{self.config.max_retries}): "
+                    f"{filename} - {e}"
+                )
+                if attempt < self.config.max_retries - 1:
+                    time.sleep(2 ** attempt)
+
+        logger.error(f"  URL下载失败（已重试{self.config.max_retries}次）: {filename}")
         return False
 
     # ── 工具方法 ──
@@ -489,9 +562,16 @@ class ImportManager:
                 skipped_no_product += 1
                 continue
 
-            # 确保是字符串
+            # 确保是字符串（飞书富文本格式: [{'text': 'xxx', 'type': 'text'}]）
             if isinstance(product_name, list):
-                product_name = product_name[0] if product_name else ""
+                # 提取富文本中的纯文本
+                texts = []
+                for item in product_name:
+                    if isinstance(item, dict) and "text" in item:
+                        texts.append(item["text"])
+                    elif isinstance(item, str):
+                        texts.append(item)
+                product_name = " ".join(texts) if texts else ""
             product_name = str(product_name).strip()
             if not product_name:
                 skipped_no_product += 1
@@ -500,7 +580,7 @@ class ImportManager:
             if product_name not in product_videos:
                 product_videos[product_name] = {}
 
-            # 遍历附件字段
+            # 遍历附件字段（type=17，飞书附件）
             has_video = False
             for field_name in attachment_field_names:
                 attachments = fields.get(field_name, [])
@@ -525,11 +605,40 @@ class ImportManager:
                     # 同一 file_token 只保留一次
                     if file_token not in product_videos[product_name]:
                         product_videos[product_name][file_token] = {
+                            "source": "attachment",
                             "file_token": file_token,
                             "filename": att.get("name", f"{file_token}.mp4"),
                             "extra": att.get("extra", ""),
                         }
                         has_video = True
+
+            # 遍历 URL 链接字段（视频链接等）
+            for field_name, field_value in fields.items():
+                if field_name in attachment_field_names:
+                    continue  # 已处理
+                if not isinstance(field_value, list):
+                    continue
+                for item in field_value:
+                    if not isinstance(item, dict):
+                        continue
+                    link = item.get("link", "") or item.get("text", "")
+                    if not link:
+                        continue
+                    # 判断是否为视频链接
+                    from urllib.parse import urlparse
+                    parsed_url = urlparse(link)
+                    ext = os.path.splitext(parsed_url.path)[1].lower()
+                    if ext in (".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv"):
+                        # 用 URL 的文件名作为 key 去重
+                        url_filename = os.path.basename(parsed_url.path) or link.split("/")[-1]
+                        url_key = f"url:{link}"
+                        if url_key not in product_videos[product_name]:
+                            product_videos[product_name][url_key] = {
+                                "source": "url",
+                                "url": link,
+                                "filename": url_filename,
+                            }
+                            has_video = True
 
             if not has_video:
                 skipped_no_video += 1
@@ -539,7 +648,7 @@ class ImportManager:
                 f"{skipped_no_product} 条记录缺少「{product_field}」字段，已跳过"
             )
         if skipped_no_video > 0:
-            logger.info(f"{skipped_no_video} 条记录无视频附件，已跳过")
+            logger.info(f"{skipped_no_video} 条记录无视频（附件或链接），已跳过")
 
         # 对每个产品去重
         result: Dict[str, list] = {}
@@ -662,13 +771,19 @@ class ImportManager:
                 product_downloaded = 0
             else:
                 for i, v in enumerate(videos, 1):
+                    source = v.get("source", "attachment")
                     logger.info(
-                        f"  [{i}/{product_new}] 下载: {v['filename']}"
+                        f"  [{i}/{product_new}] 下载: {v['filename']} (来源: {source})"
                     )
-                    success = self.client.download_attachment(
-                        v["file_token"], v.get("extra"),
-                        import_dir, v["filename"],
-                    )
+                    if source == "url":
+                        success = self.client.download_url(
+                            v["url"], import_dir, v["filename"],
+                        )
+                    else:
+                        success = self.client.download_attachment(
+                            v["file_token"], v.get("extra"),
+                            import_dir, v["filename"],
+                        )
                     if success:
                         product_downloaded += 1
                     else:
@@ -678,7 +793,9 @@ class ImportManager:
             if not dry_run and product_downloaded > 0:
                 manifest = self.load_manifest(product)
                 for v in videos:
-                    manifest[v["file_token"]] = v["filename"]
+                    # 用 file_token 或 url 作为 manifest key
+                    key = v.get("file_token") or v.get("url", "")
+                    manifest[key] = v["filename"]
                 self.save_manifest(product, manifest)
 
             self.stats[product] = {
